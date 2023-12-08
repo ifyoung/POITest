@@ -656,9 +656,228 @@ public class PoiUtiles {
         return msgBoxes;
     }
 
+    public static WrapListWithMsg<BoxRules> getBoxRulesList(String path, InputStream input, File fileIn) throws IOException {
+
+        // 获取文件输入流
+        // 创建工作簿对象
+//        Workbook workbook = new XSSFWorkbook(inputStream);
+        WrapListWithMsg<BoxRules> msgBoxes = new WrapListWithMsg<>();
+        try (Workbook workbook = new XSSFWorkbook(fileIn)) {
+
+            msgBoxes = new WrapListWithMsg<>();
+            List<BoxRules> boxRules = new ArrayList<>();
+            List<String> errStrs = new ArrayList<>();
+            msgBoxes.setListData(boxRules);//放前面放后面一样？地址指向？ List<String> 不行？
+            if (workbook == null) {
+                errStrs.add("整表读取错误");
+                return msgBoxes;
+            }
+            int numberOfSheets = workbook.getNumberOfSheets(); //获取Workbook中sheet的个数
+            //创建一个FormulaEvaluator对象，用于对公式进行求值
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+
+            for (int i = 0; i < numberOfSheets; i++) { //遍历所有的sheet索引
+                String sheetName = workbook.getSheetName(i); //获取每个sheet的名称
+                //            System.out.println(sheetName); //打印sheet的名称
+                //有个隐藏的sheet
+                SheetVisibility sheetVisibility = workbook.getSheetVisibility(i); //获取第一个
+                if (sheetVisibility == SheetVisibility.VISIBLE) {
+                    Sheet sheet = workbook.getSheetAt(i); // 获取工作表
+                    String name = sheet.getSheetName();
+                    // 获取最后一行的索引,总行数
+                    int lastRowNum = sheet.getLastRowNum();
+                    //排除首行
+                    for (int j = 1; j <= lastRowNum; j++) {
+                        Row row = sheet.getRow(j);
+                        BoxRules rules = new BoxRules();
+                        rules.setSheetName(name);
+                        //列数校验
+                        if (row == null || row.getCell(0) == null || row.getCell(0).getStringCellValue().toUpperCase().contains("SKU")) {
+                            continue;
+                        }
+                        //列key值的顺序校验？
+                        //遍历行中的所有单元格
+                        for (Cell cell : row) {
+                            CellType rcCellType = cell.getCellType();
+                            Object cellData = null;
+                            //判断单元格是否是公式类型
+                            if (rcCellType == CellType.FORMULA) {
+                                //对单元格进行求值，并获取求值结果的类型和值
+                                CellValue cellValue = evaluator.evaluate(cell);
+                                CellType cellType = cellValue.getCellType();
+
+                                switch (cellType) {
+                                    case NUMERIC: //如果结果是数值类型，获取数值
+                                        cellData = cellValue.getNumberValue();
+                                        break;
+                                    case STRING: //如果结果是字符串类型，获取字符串
+                                        cellData = cellValue.getStringValue();
+                                        break;
+                                    case BOOLEAN: //如果结果是布尔类型，获取布尔值
+                                        cellData = cellValue.getBooleanValue();
+                                        break;
+                                    case ERROR: //如果结果是错误类型，获取错误码
+                                        cellData = cellValue.getErrorValue();
+                                        break;
+                                    default: //其他情况，跳过
+                                        continue;
+                                }
+                                //打印单元格的坐标、公式和求值结果
+                            } else {
+                                switch (rcCellType) {
+                                    case NUMERIC: //如果结果是数值类型，获取数值
+                                        cellData = cell.getNumericCellValue();
+                                        break;
+                                    case STRING: //如果结果是字符串类型，获取字符串
+                                        cellData = cell.getStringCellValue();
+                                        break;
+                                    case BOOLEAN: //如果结果是布尔类型，获取布尔值
+                                        cellData = cell.getBooleanCellValue();
+                                        break;
+                                    case ERROR: //如果结果是错误类型，获取错误码
+                                        cellData = cell.getErrorCellValue();
+                                        break;
+                                    default: //其他情况，跳过
+                                        continue;
+                                }
+                            }
+                            String address = String.valueOf(cell.getAddress());
+                            if (address.contains("A")) {//一行开始
+                                if (cellData instanceof String) {
+                                    String sku = (String) cellData;
+                                    rules.setSKU(sku);
+                                } else {
+                                    //                                System.out.println("sku类型错误>>" + address + ">>" + cellData);
+                                    errStrs.add(name+">"+address + ":类型错误");
+                                }
+
+                            } else if (address.contains("B")) {
+                                String rSize = String.valueOf(cellData);
+                                // Float rSize = floatFormat(size); //可能有英文
+                                if (rSize != null) {
+                                    rules.setfSize(rSize);
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+                            } else if (address.contains("C")) {
+                                if (cellData instanceof String) {
+                                    String fsku = (String) cellData;
+                                    rules.setFNSKU(fsku);
+                                } else {
+                                    errStrs.add(name+">"+address + ":类型错误");
+                                }
+
+                            } else if (address.contains("D")) {
+                                //NUMERIC 基本都是float，带小数点
+                                String perBox = String.valueOf(cellData);
+                                Float rPerBox = floatFormat(perBox);
+                                if (rPerBox != null) {
+                                    rules.setPerBox(rPerBox.intValue());
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+                            } else if (address.contains("E")) {
+                                String weight = String.valueOf(cellData);
+
+                                Float rWeight = floatFormat(weight);
+                                if (rWeight != null) {
+                                    rules.setbWeight(rWeight);
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+
+                            } else if (address.contains("F")) {//长
+                                String len = String.valueOf(cellData);
+
+                                Float rLen = floatFormat(len);
+                                if (rLen != null) {
+                                    rules.setbLength(rLen);
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+                            } else if (address.contains("G")) {//宽
+                                String width = String.valueOf(cellData);
+                                Float rWidth = floatFormat(width);
+                                if (rWidth != null) {
+                                    rules.setbWidth(rWidth);
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+
+                            } else if (address.contains("H")) {//高
+                                String height = String.valueOf(cellData);
+
+                                Float rHeight = floatFormat(height);
+                                if (rHeight != null) {
+                                    rules.setbHeight(rHeight);
+                                } else {
+                                    errStrs.add(name+">"+address + ":格式错误");
+                                }
+                            } else if (address.contains("I")) {//ERP款号
+                                String erpCode = String.valueOf(cellData);
+                                if (erpCode != null) {
+                                    rules.setErpCode(erpCode);
+                                } else {
+                                    errStrs.add(name + ">" + address + "ERP款号缺失");
+                                }
+
+                            } else if (address.contains("J")) {//ARTICLE
+                                String ARTICLE = String.valueOf(cellData);
+
+                                if (ARTICLE != null) {
+                                    rules.setARTICLE(ARTICLE);
+                                } else {
+                                    errStrs.add(name + ">" + address + "ARTICLE缺失");
+                                }
+                            } else if (address.contains("K")) {//HS CODE
+                                String hsCode = String.valueOf(cellData);
+                                if (rules.getARTICLE() == null) {//放最后一个来判别前面的
+                                    errStrs.add(name + ">" + address + "附近，ARTICLE缺失");
+                                }
+                                if (rules.getErpCode() == null) {//放最后一个来判别前面的
+
+                                }
+                                if (hsCode != null) {
+                                    rules.setHS_CODE(hsCode);
+                                } else {
+                                    errStrs.add(name + ">" + address + "HS CODE缺失");
+                                }
+                            }
+                        }
+                        //放里外结果一样？
+                        if (!boxRules.contains(rules)) {
+                            if (rules.getARTICLE() == null) {//放最后一个来判别前面的
+                                String er = name + ">" + "里，ARTICLE缺失";
+                                if (!errStrs.contains(er)) {
+                                    errStrs.add(er);
+                                }
+
+                            }
+                            if (rules.getHS_CODE() == null) {//放最后一个来判别前面的
+                                String er = name + ">" + "HS CODE缺失";
+                                if (!errStrs.contains(er)) {
+                                    errStrs.add(er);
+                                }
+                            }
+
+                            boxRules.add(rules);
+                        }
+                    }
+                } else {
+                    System.out.println(sheetName + ">The first sheet is hidden"); //如果是隐藏的，打印提示信息
+                }
+            }
+            msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
+        } catch (InvalidFormatException e) {
+            e.printStackTrace();
+        }
+
+        return msgBoxes;
+    }
+
 
     //M-读取箱规-poi
-    public static WrapListWithMsg<BoxRules> getBoxRulesList(String path, InputStream input, File fileIn) throws IOException {
+    public static WrapListWithMsg<BoxRules> getBoxRulesListOld(String path, InputStream input, File fileIn) throws IOException {
 
 //        InputStream inputStream = new FileInputStream(path);
 
@@ -957,386 +1176,404 @@ public class PoiUtiles {
     //M-读取箱规-fast，有不确定问题？>>fastexcel不支持xls
     public static WrapListWithMsg<BoxRules> getBoxRulesListFast(File fileIn) throws IOException {
 
-        ReadableWorkbook wb = new ReadableWorkbook(fileIn);
+        WrapListWithMsg<BoxRules> msgBoxes;
+        List<BoxRules> boxDetails;
+        List<String> errStrs;
+        Stream<org.dhatim.fastexcel.reader.Sheet> sheets;
+        try (ReadableWorkbook wb = new ReadableWorkbook(fileIn)) {
 
-        WrapListWithMsg<BoxRules> msgBoxes = new WrapListWithMsg<>();
-        List<BoxRules> boxDetails = new ArrayList<>();
-        List<String> errStrs = new ArrayList<>();
-        msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
-        Stream<org.dhatim.fastexcel.reader.Sheet> sheets = wb.getSheets(); //获取Workbook中sheet的个数
+            msgBoxes = new WrapListWithMsg<>();
+            boxDetails = new ArrayList<>();
+            errStrs = new ArrayList<>();
+            msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
+            //获取Workbook中sheet的个数
+            sheets = wb.getSheets();
 
-        sheets.forEach(sheet -> {
-            String name = sheet.getName(); //获取每个sheet的名称
-            if (name.contains("不发") || name.contains("数据源")) {//过滤表
 
-            } else {
-                org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
-                if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
-                    try { // Get a stream of rows from the sheet
-                        List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
-                        if (!rr.isEmpty()) {
-                            int size = rr.size();
-                            //排除首行
-                            for (int i = 1; i < size; i++) {
-                                org.dhatim.fastexcel.reader.Row row = rr.get(i);
-                                BoxRules details = new BoxRules();
-                                details.setSheetName(name);
-                                //底部空一大片又突然出现一小格的情况,或者隐藏行
-                                if (row == null || row.getCellCount() < 2) {
-                                    boolean tt = true;
-                                    continue;
-                                }
-                                Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
+            sheets.forEach(sheet -> {
+                String name = sheet.getName(); //获取每个sheet的名称
+                if (name.contains("不发") || name.contains("数据源")) {//过滤表
+
+                } else {
+                    org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
+                    if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
+                        try { // Get a stream of rows from the sheet
+                            List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
+                            if (!rr.isEmpty()) {
+                                int size = rr.size();
+                                //排除首行
+                                for (int i = 1; i < size; i++) {
+                                    org.dhatim.fastexcel.reader.Row row = rr.get(i);
+                                    BoxRules details = new BoxRules();
+                                    details.setSheetName(name);
+                                    //底部空一大片又突然出现一小格的情况,或者隐藏行
+                                    if (row == null || row.getCellCount() < 2) {
+                                        boolean tt = true;
+                                        continue;
+                                    }
+                                    Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
 //                                    org.dhatim.fastexcel.reader.Cell fCell = row.getFirstNonEmptyCell().get();
-                                if (!fCell.isPresent()
-                                        || fCell.get().getText().isEmpty()
-                                        || fCell.get().getText().toUpperCase().contains("SKU")) {//中间可能还有标题
-                                    continue;
-                                }
-
-                                row.stream().forEach(cell -> {
-                                    if (cell == null) {
-                                        return;
+                                    if (fCell.isEmpty()
+                                            || fCell.get().getText().isEmpty()
+                                            || fCell.get().getText().toUpperCase().contains("SKU")) {//中间可能还有标题
+                                        continue;
                                     }
-                                    Object cellData = cell.getValue();
-                                    String address = String.valueOf(cell.getAddress());
 
-                                    if (address.startsWith("A")) {//一行开始
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setSKU(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
+                                    row.stream().forEach(cell -> {
+                                        if (cell == null) {
+                                            return;
                                         }
+                                        Object cellData = cell.getValue();
+                                        String address = String.valueOf(cell.getAddress());
 
-                                    } else if (address.startsWith("B")) {
-                                        String rSize = String.valueOf(cellData);
+                                        if (address.startsWith("A")) {//一行开始
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setSKU(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("B")) {
+                                            String rSize = String.valueOf(cellData);
 //                                        Float rSize = floatFormat(sizeStr);
-                                        if (rSize != null) {
-                                            details.setfSize(rSize);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
+                                            if (rSize != null) {
+                                                details.setfSize(rSize);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+
+                                        } else if (address.startsWith("C")) {
+                                            if (name.contains("DE-FRA") && address.contains("C144")) {
+                                                boolean t = true;
+                                            }
+                                            if (cellData instanceof String) {
+                                                String fsku = (String) cellData;
+                                                details.setFNSKU(fsku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("D")) {
+                                            //NUMERIC 基本都是float，带小数点
+                                            String perBox = String.valueOf(cellData);
+                                            Float rPerBox = floatFormat(perBox);
+                                            if (rPerBox != null) {
+                                                details.setPerBox(rPerBox.intValue());
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+                                        } else if (address.startsWith("E")) {
+                                            String weight = String.valueOf(cellData);
+
+                                            Float rWeight = floatFormat(weight);
+                                            if (rWeight != null) {
+                                                details.setbWeight(rWeight);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+
+                                        } else if (address.startsWith("F")) {//长
+                                            String len = String.valueOf(cellData);
+
+                                            Float rLen = floatFormat(len);
+                                            if (rLen != null) {
+                                                details.setbLength(rLen);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+
+                                        } else if (address.startsWith("G")) {//宽
+                                            String width = String.valueOf(cellData);
+                                            Float rWidth = floatFormat(width);
+                                            if (rWidth != null) {
+                                                details.setbWidth(rWidth);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+
+                                        } else if (address.startsWith("H")) {//高
+                                            String height = String.valueOf(cellData);
+
+                                            Float rHeight = floatFormat(height);
+                                            if (rHeight != null) {
+                                                details.setbHeight(rHeight);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":格式错误");
+                                            }
+                                        }
+                                        if (!boxDetails.contains(details)) {
+                                            boxDetails.add(details);
                                         }
 
-                                    } else if (address.startsWith("C")) {
-                                        if (name.contains("DE-FRA") && address.contains("C144")) {
-                                            boolean t = true;
-                                        }
-                                        if (cellData instanceof String) {
-                                            String fsku = (String) cellData;
-                                            details.setFNSKU(fsku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
+                                    });
 
-                                    } else if (address.startsWith("D")) {
-                                        //NUMERIC 基本都是float，带小数点
-                                        String perBox = String.valueOf(cellData);
-                                        Float rPerBox = floatFormat(perBox);
-                                        if (rPerBox != null) {
-                                            details.setPerBox(rPerBox.intValue());
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
-                                        }
-                                    } else if (address.startsWith("E")) {
-                                        String weight = String.valueOf(cellData);
-
-                                        Float rWeight = floatFormat(weight);
-                                        if (rWeight != null) {
-                                            details.setbWeight(rWeight);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
-                                        }
-
-                                    } else if (address.startsWith("F")) {//长
-                                        String len = String.valueOf(cellData);
-
-                                        Float rLen = floatFormat(len);
-                                        if (rLen != null) {
-                                            details.setbLength(rLen);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
-                                        }
-
-                                    } else if (address.startsWith("G")) {//宽
-                                        String width = String.valueOf(cellData);
-                                        Float rWidth = floatFormat(width);
-                                        if (rWidth != null) {
-                                            details.setbWidth(rWidth);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
-                                        }
-
-                                    } else if (address.startsWith("H")) {//高
-                                        String height = String.valueOf(cellData);
-
-                                        Float rHeight = floatFormat(height);
-                                        if (rHeight != null) {
-                                            details.setbHeight(rHeight);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":格式错误");
-                                        }
-                                    }
-                                    if (!boxDetails.contains(details)) {
-                                        boxDetails.add(details);
-                                    }
-
-                                });
-
+                                }
                             }
+
+
+                        } catch (IOException e) {
+                            e.printStackTrace();
                         }
 
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
                     }
-
                 }
-            }
 
-        });
-        msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
-
+            });
+            msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
+        }
         return msgBoxes;
     }
 
     //M-读取仓库信息
     public static WrapListWithMsg<StockInfos> getStockInfosListFast(File fileIn) throws IOException {
 
-        ReadableWorkbook wb = new ReadableWorkbook(fileIn);
+        WrapListWithMsg<StockInfos> msgBoxes;
+        List<StockInfos> boxDetails;
+        List<String> errStrs;
+        Stream<org.dhatim.fastexcel.reader.Sheet> sheets;
+        try (ReadableWorkbook wb = new ReadableWorkbook(fileIn)) {
 
-        WrapListWithMsg<StockInfos> msgBoxes = new WrapListWithMsg<>();
-        List<StockInfos> boxDetails = new ArrayList<>();
-        List<String> errStrs = new ArrayList<>();
-        msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
-        Stream<org.dhatim.fastexcel.reader.Sheet> sheets = wb.getSheets(); //获取Workbook中sheet的个数
+            msgBoxes = new WrapListWithMsg<>();
+            boxDetails = new ArrayList<>();
+            errStrs = new ArrayList<>();
+            msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
+            //获取Workbook中sheet的个数
+            sheets = wb.getSheets();
 
-        sheets.forEach(sheet -> {
-            String name = sheet.getName(); //获取每个sheet的名称
-            if (name.contains("不发") || name.contains("数据源")) {//过滤表
 
-            } else {
-                org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
-                if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
-                    try { // Get a stream of rows from the sheet
-                        List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
-                        if (!rr.isEmpty()) {
-                            int size = rr.size();
-                            //排除首行
-                            for (int i = 1; i < size; i++) {
-                                org.dhatim.fastexcel.reader.Row row = rr.get(i);
-                                StockInfos details = new StockInfos();
-                                details.setSheetName(name);
-                                //底部空一大片又突然出现一小格的情况,或者隐藏行
-                                if (row == null || row.getCellCount() < 2) {
-                                    boolean tt = true;
-                                    continue;
-                                }
-                                Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
+            sheets.forEach(sheet -> {
+                String name = sheet.getName(); //获取每个sheet的名称
+                if (name.contains("不发") || name.contains("数据源")) {//过滤表
+
+                } else {
+                    org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
+                    if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
+                        try { // Get a stream of rows from the sheet
+                            List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
+                            if (!rr.isEmpty()) {
+                                int size = rr.size();
+                                //排除首行
+                                for (int i = 1; i < size; i++) {
+                                    org.dhatim.fastexcel.reader.Row row = rr.get(i);
+                                    StockInfos details = new StockInfos();
+                                    details.setSheetName(name);
+                                    //底部空一大片又突然出现一小格的情况,或者隐藏行
+                                    if (row == null || row.getCellCount() < 2) {
+                                        boolean tt = true;
+                                        continue;
+                                    }
+                                    Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
 //                                    org.dhatim.fastexcel.reader.Cell fCell = row.getFirstNonEmptyCell().get();
-                                if (!fCell.isPresent()
-                                        || fCell.get().getText().isEmpty()
-                                        || fCell.get().getText().toUpperCase().contains("仓库名")) {//中间可能还有标题
-                                    continue;
+                                    if (fCell.isEmpty()
+                                            || fCell.get().getText().isEmpty()
+                                            || fCell.get().getText().toUpperCase().contains("仓库名")) {//中间可能还有标题
+                                        continue;
+                                    }
+
+                                    row.stream().forEach(cell -> {
+                                        if (cell == null) {
+                                            return;
+                                        }
+                                        Object cellData = cell.getValue();
+                                        String address = String.valueOf(cell.getAddress());
+
+                                        if (address.startsWith("A")) {//一行开始
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setStockName(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("B")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setFBA(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("C")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setCountry(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("D")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setProvince(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+                                        } else if (address.startsWith("E")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setCity(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("F")) {//邮编
+                                            String sku = String.valueOf(cellData);
+                                            details.setPostalCode(sku);
+
+                                        } else if (address.startsWith("G")) {//宽
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setAddress(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        }
+                                        if (!boxDetails.contains(details)) {
+                                            boxDetails.add(details);
+                                        }
+
+                                    });
+
                                 }
-
-                                row.stream().forEach(cell -> {
-                                    if (cell == null) {
-                                        return;
-                                    }
-                                    Object cellData = cell.getValue();
-                                    String address = String.valueOf(cell.getAddress());
-
-                                    if (address.startsWith("A")) {//一行开始
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setStockName(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("B")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setFBA(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("C")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setCountry(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("D")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setProvince(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-                                    } else if (address.startsWith("E")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setCity(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("F")) {//邮编
-                                        String sku = String.valueOf(cellData);
-                                        details.setPostalCode(sku);
-
-                                    } else if (address.startsWith("G")) {//宽
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setAddress(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    }
-                                    if (!boxDetails.contains(details)) {
-                                        boxDetails.add(details);
-                                    }
-
-                                });
-
                             }
+
+
+                        } catch (IOException e) {
+                            e.printStackTrace();
                         }
 
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
                     }
-
                 }
-            }
 
-        });
-        msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
-
+            });
+            msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
+        }
         return msgBoxes;
     }
 
     //M-仓库信息表读取
     public static WrapListWithMsg<CargoInfo> getCargoInfoListFast(File fileIn) throws IOException {
 
-        ReadableWorkbook wb = new ReadableWorkbook(fileIn);
+        WrapListWithMsg<CargoInfo> msgBoxes;
+        List<CargoInfo> boxDetails;
+        List<String> errStrs;
+        Stream<org.dhatim.fastexcel.reader.Sheet> sheets;
+        try (ReadableWorkbook wb = new ReadableWorkbook(fileIn)) {
 
-        WrapListWithMsg<CargoInfo> msgBoxes = new WrapListWithMsg<>();
-        List<CargoInfo> boxDetails = new ArrayList<>();
-        List<String> errStrs = new ArrayList<>();
-        msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
-        Stream<org.dhatim.fastexcel.reader.Sheet> sheets = wb.getSheets(); //获取Workbook中sheet的个数
+            msgBoxes = new WrapListWithMsg<>();
+            boxDetails = new ArrayList<>();
+            errStrs = new ArrayList<>();
+            msgBoxes.setListData(boxDetails);//放前面放后面一样？地址指向？ List<String> 不行？
+            //获取Workbook中sheet的个数
+            sheets = wb.getSheets();
 
-        sheets.forEach(sheet -> {
-            String name = sheet.getName(); //获取每个sheet的名称
-            if (name.contains("不发") || name.contains("数据源")) {//过滤表
 
-            } else {
-                org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
-                if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
-                    try { // Get a stream of rows from the sheet
-                        List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
-                        if (!rr.isEmpty()) {
-                            int size = rr.size();
-                            //排除首行
-                            for (int i = 1; i < size; i++) {
-                                org.dhatim.fastexcel.reader.Row row = rr.get(i);
-                                CargoInfo details = new CargoInfo();
-                                details.setSheetName(name);
-                                //底部空一大片又突然出现一小格的情况,或者隐藏行
-                                if (row == null || row.getCellCount() < 2) {
-                                    boolean tt = true;
-                                    continue;
-                                }
-                                Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
+            sheets.forEach(sheet -> {
+                String name = sheet.getName(); //获取每个sheet的名称
+                if (name.contains("不发") || name.contains("数据源")) {//过滤表
+
+                } else {
+                    org.dhatim.fastexcel.reader.SheetVisibility sheetVisibility = sheet.getVisibility(); //获取每个sheet的可见性
+                    if (sheetVisibility == org.dhatim.fastexcel.reader.SheetVisibility.VISIBLE) {
+                        try { // Get a stream of rows from the sheet
+                            List<org.dhatim.fastexcel.reader.Row> rr = sheet.read();
+                            if (!rr.isEmpty()) {
+                                int size = rr.size();
+                                //排除首行
+                                for (int i = 1; i < size; i++) {
+                                    org.dhatim.fastexcel.reader.Row row = rr.get(i);
+                                    CargoInfo details = new CargoInfo();
+                                    details.setSheetName(name);
+                                    //底部空一大片又突然出现一小格的情况,或者隐藏行
+                                    if (row == null || row.getCellCount() < 2) {
+                                        boolean tt = true;
+                                        continue;
+                                    }
+                                    Optional<org.dhatim.fastexcel.reader.Cell> fCell = row.getOptionalCell(0);
 //                                    org.dhatim.fastexcel.reader.Cell fCell = row.getFirstNonEmptyCell().get();
-                                if (!fCell.isPresent()
-                                        || fCell.get().getText().isEmpty()
-                                        || fCell.get().getText().toUpperCase().contains("仓库名")) {//中间可能还有标题
-                                    continue;
+                                    if (fCell.isEmpty()
+                                            || fCell.get().getText().isEmpty()
+                                            || fCell.get().getText().toUpperCase().contains("仓库名")) {//中间可能还有标题
+                                        continue;
+                                    }
+
+                                    row.stream().forEach(cell -> {
+                                        if (cell == null) {
+                                            return;
+                                        }
+                                        Object cellData = cell.getValue();
+                                        String address = String.valueOf(cell.getAddress());
+
+                                        if (address.startsWith("A")) {//一行开始
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setStockName(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("B")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setCargo(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("C")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setFBA(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        } else if (address.startsWith("D")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setCargoNum(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+                                        } else if (address.startsWith("E")) {
+                                            String sku = String.valueOf(cellData);
+                                            details.setBoxes(sku);
+
+                                        } else if (address.startsWith("F")) {//商品数
+                                            String sku = String.valueOf(cellData);
+                                            details.setShoes(sku);
+
+                                        } else if (address.startsWith("G")) {
+                                            if (cellData instanceof String) {
+                                                String sku = (String) cellData;
+                                                details.setAddress(sku);
+                                            } else {
+                                                errStrs.add(name + ">" + address + ":类型错误");
+                                            }
+
+                                        }
+                                        if (!boxDetails.contains(details)) {
+                                            boxDetails.add(details);
+                                        }
+
+                                    });
+
                                 }
-
-                                row.stream().forEach(cell -> {
-                                    if (cell == null) {
-                                        return;
-                                    }
-                                    Object cellData = cell.getValue();
-                                    String address = String.valueOf(cell.getAddress());
-
-                                    if (address.startsWith("A")) {//一行开始
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setStockName(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("B")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setCargo(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("C")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setFBA(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    } else if (address.startsWith("D")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setCargoNum(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-                                    } else if (address.startsWith("E")) {
-                                        String sku = String.valueOf(cellData);
-                                        details.setBoxes(sku);
-
-                                    } else if (address.startsWith("F")) {//商品数
-                                        String sku = String.valueOf(cellData);
-                                        details.setShoes(sku);
-
-                                    } else if (address.startsWith("G")) {
-                                        if (cellData instanceof String) {
-                                            String sku = (String) cellData;
-                                            details.setAddress(sku);
-                                        } else {
-                                            errStrs.add(name + ">" + address + ":类型错误");
-                                        }
-
-                                    }
-                                    if (!boxDetails.contains(details)) {
-                                        boxDetails.add(details);
-                                    }
-
-                                });
-
                             }
+
+
+                        } catch (IOException e) {
+                            e.printStackTrace();
                         }
 
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
                     }
-
                 }
-            }
 
-        });
-        msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
-
+            });
+            msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
+        }
         return msgBoxes;
     }
 
@@ -1347,293 +1584,286 @@ public class PoiUtiles {
         // 创建工作簿对象
 //        Workbook workbook = new XSSFWorkbook(inputStream);
 
-        FileInputStream fileInputStream = new FileInputStream(fileIn);
+        WrapListWithMsg<ShenBaoInfo> msgBoxes;
+        try (FileInputStream fileInputStream = new FileInputStream(fileIn); Workbook workbook = new HSSFWorkbook(fileInputStream)) {
 
-        Workbook workbook = null;
-        workbook = new HSSFWorkbook(fileInputStream);
+            msgBoxes = new WrapListWithMsg<>();
+            List<ShenBaoInfo> boxRules = new ArrayList<>();
+            List<String> errStrs = new ArrayList<>();
+            msgBoxes.setListData(boxRules);//放前面放后面一样？地址指向？ List<String> 不行？
+            int numberOfSheets = workbook.getNumberOfSheets(); //获取Workbook中sheet的个数
+            //创建一个FormulaEvaluator对象，用于对公式进行求值
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
-        WrapListWithMsg<ShenBaoInfo> msgBoxes = new WrapListWithMsg<>();
-        List<ShenBaoInfo> boxRules = new ArrayList<>();
-        List<String> errStrs = new ArrayList<>();
-        msgBoxes.setListData(boxRules);//放前面放后面一样？地址指向？ List<String> 不行？
-        int numberOfSheets = workbook.getNumberOfSheets(); //获取Workbook中sheet的个数
-        //创建一个FormulaEvaluator对象，用于对公式进行求值
-        FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            //略过第一个sheet
+            for (int i = 1; i < numberOfSheets; i++) { //遍历所有的sheet索引
+                String sheetName = workbook.getSheetName(i); //获取每个sheet的名称
+                //            System.out.println(sheetName); //打印sheet的名称
 
-        //略过第一个sheet
-        for (int i = 1; i < numberOfSheets; i++) { //遍历所有的sheet索引
-            String sheetName = workbook.getSheetName(i); //获取每个sheet的名称
-//            System.out.println(sheetName); //打印sheet的名称
+                //有个隐藏的sheet
+                SheetVisibility sheetVisibility = workbook.getSheetVisibility(i); //获取第一个
+                if (sheetVisibility == SheetVisibility.VISIBLE) {
+                    Sheet sheet = workbook.getSheetAt(i); // 获取工作表
+                    String name = sheet.getSheetName();
+                    // 获取最后一行的索引,总行数
+                    int lastRowNum = sheet.getLastRowNum();
 
-            //有个隐藏的sheet
-            SheetVisibility sheetVisibility = workbook.getSheetVisibility(i); //获取第一个
-            if (sheetVisibility == SheetVisibility.VISIBLE) {
-                Sheet sheet = workbook.getSheetAt(i); // 获取工作表
-                String name = sheet.getSheetName();
-                // 获取最后一行的索引,总行数
-                int lastRowNum = sheet.getLastRowNum();
+                    //                List<PictureData> pictures = (List<PictureData>) workbook.getAllPictures();
 
-//                List<PictureData> pictures = (List<PictureData>) workbook.getAllPictures();
+                    // 获取所有的绘图对象
+                    //                List<HSSFPictureData> pictures = (List<HSSFPictureData>) workbook.getAllPictures();
 
-                // 获取所有的绘图对象
-//                List<HSSFPictureData> pictures = (List<HSSFPictureData>) workbook.getAllPictures();
+                    //都固定-15，15列
+                    Map<String, PictureData> maplist = getPictures1((HSSFSheet) sheet);
 
-                //都固定-15，15列
-                Map<String, PictureData> maplist = getPictures1((HSSFSheet) sheet);
+                    //                for (HSSFShape shape : (sheet.getDrawingPatriarch()).getChildren()) {
+                    //                    // 如果是图片对象
+                    //                    if (shape instanceof HSSFPicture) {
+                    //                        HSSFPicture picture = (HSSFPicture) shape;
+                    //                        // 获取图片锚点
+                    //                        HSSFClientAnchor anchor = (HSSFClientAnchor) picture.getAnchor();
+                    //                        // 获取图片数据
+                    //                        PictureData pictureData = pictures.get(picture.getPictureIndex() - 1);
+                    //                        // 获取图片位置，格式为行号-列号
+                    //                        String key = anchor.getRow1() + "-" + anchor.getCol1();
+                    //                        // 将图片和位置放入映射中
+                    ////                        pictureMap.put(key, pictureData);
+                    //                        Lg.i("图图图》》》key", ">>>" + key);
+                    //                    }
+                    //                }
 
-//                for (HSSFShape shape : (sheet.getDrawingPatriarch()).getChildren()) {
-//                    // 如果是图片对象
-//                    if (shape instanceof HSSFPicture) {
-//                        HSSFPicture picture = (HSSFPicture) shape;
-//                        // 获取图片锚点
-//                        HSSFClientAnchor anchor = (HSSFClientAnchor) picture.getAnchor();
-//                        // 获取图片数据
-//                        PictureData pictureData = pictures.get(picture.getPictureIndex() - 1);
-//                        // 获取图片位置，格式为行号-列号
-//                        String key = anchor.getRow1() + "-" + anchor.getCol1();
-//                        // 将图片和位置放入映射中
-////                        pictureMap.put(key, pictureData);
-//                        Lg.i("图图图》》》key", ">>>" + key);
-//                    }
-//                }
+                    // 获取所有图片数据
+                    //                List<HSSFPictureData> pictures = workbook.getAllPictures();
+                    // 遍历图片数据
 
-                // 获取所有图片数据
-//                List<HSSFPictureData> pictures = workbook.getAllPictures();
-                // 遍历图片数据
-
-//                for (HSSFPictureData picture : pictures) {
-//                    // 获取图片格式
-//                    String ext = picture.suggestFileExtension();
-//
-//
-//                    // 获取图片在sheet中的位置
-//                    HSSFClientAnchor anchor = (HSSFClientAnchor) picture.getAnchor();
-//                    int row = anchor.getRow1();
-//                    int col = anchor.getCol1();
-//                    // 创建一个输出流，保存图片到指定路径
-//                    FileOutputStream out = new FileOutputStream("image_" + row + "_" + col + "." + ext);
-//                    out.write(picture.getData());
-//                    out.close();
-//                }
+                    //                for (HSSFPictureData picture : pictures) {
+                    //                    // 获取图片格式
+                    //                    String ext = picture.suggestFileExtension();
+                    //
+                    //
+                    //                    // 获取图片在sheet中的位置
+                    //                    HSSFClientAnchor anchor = (HSSFClientAnchor) picture.getAnchor();
+                    //                    int row = anchor.getRow1();
+                    //                    int col = anchor.getCol1();
+                    //                    // 创建一个输出流，保存图片到指定路径
+                    //                    FileOutputStream out = new FileOutputStream("image_" + row + "_" + col + "." + ext);
+                    //                    out.write(picture.getData());
+                    //                    out.close();
+                    //                }
 
 
-                boolean tp = true;
-                for (int j = 1; j <= lastRowNum; j++) {
-                    Row row = sheet.getRow(j);
-                    if (row == null || row.getCell(0) == null) {
-                        continue;
-                    }
-                    ShenBaoInfo rules = new ShenBaoInfo();
-                    rules.setSheetName(name);
-                    //列数校验
-                    int lenCell = row.getPhysicalNumberOfCells();
-                    //列key值的顺序校验？
-//                    rules.setColumn(lenCell);
-                    //遍历行中的所有单元格
-                    for (Cell cell : row) {
-                        CellType rcCellType = cell.getCellType();
-                        Object cellData = null;
-                        //判断单元格是否是公式类型
-                        if (rcCellType == CellType.FORMULA) {
-                            //对单元格进行求值，并获取求值结果的类型和值
-                            CellValue cellValue = evaluator.evaluate(cell);
-                            CellType cellType = cellValue.getCellType();
-
-                            switch (cellType) {
-                                case NUMERIC: //如果结果是数值类型，获取数值
-                                    cellData = cellValue.getNumberValue();
-                                    break;
-                                case STRING: //如果结果是字符串类型，获取字符串
-                                    cellData = cellValue.getStringValue();
-                                    break;
-                                case BOOLEAN: //如果结果是布尔类型，获取布尔值
-                                    cellData = cellValue.getBooleanValue();
-                                    break;
-                                case ERROR: //如果结果是错误类型，获取错误码
-                                    cellData = cellValue.getErrorValue();
-                                    break;
-//                                default: //其他情况，跳过
-//                                    continue;
-                            }
-                            //打印单元格的坐标、公式和求值结果
-//                            System.out.println("FORMULA>" + cell.getAddress() + ": " + cell.getCellFormula() + " = " + cellData);
-                        } else {
-//                            CellType cellType = cell.getCellType();
-//                            Object cellData = null;
-                            switch (rcCellType) {
-                                case NUMERIC: //如果结果是数值类型，获取数值
-                                    cellData = cell.getNumericCellValue();
-                                    break;
-                                case STRING: //如果结果是字符串类型，获取字符串
-                                    cellData = cell.getStringCellValue();
-                                    break;
-                                case BOOLEAN: //如果结果是布尔类型，获取布尔值
-                                    cellData = cell.getBooleanCellValue();
-                                    break;
-                                case ERROR: //如果结果是错误类型，获取错误码
-                                    cellData = cell.getErrorCellValue();
-                                    break;
-//                                default: //其他情况，跳过
-//                                    Lg.i(">>>", rcCellType.name());
-//                                    continue;
-                            }
-//                            System.out.println("FORMULA-out>" + cell.getAddress() + ">type" + rcCellType + ">: " + cellData);
+                    boolean tp = true;
+                    for (int j = 1; j <= lastRowNum; j++) {
+                        Row row = sheet.getRow(j);
+                        if (row == null || row.getCell(0) == null) {
+                            continue;
                         }
+                        ShenBaoInfo rules = new ShenBaoInfo();
+                        rules.setSheetName(name);
+                        //列数校验
+                        int lenCell = row.getPhysicalNumberOfCells();
+                        //列key值的顺序校验？
+                        //                    rules.setColumn(lenCell);
+                        //遍历行中的所有单元格
+                        for (Cell cell : row) {
+                            CellType rcCellType = cell.getCellType();
+                            Object cellData = null;
+                            //判断单元格是否是公式类型
+                            if (rcCellType == CellType.FORMULA) {
+                                //对单元格进行求值，并获取求值结果的类型和值
+                                CellValue cellValue = evaluator.evaluate(cell);
+                                CellType cellType = cellValue.getCellType();
 
-//                        String address = cell.getAddress() + "";
-                        String address = String.valueOf(cell.getAddress());
-                        if (address.contains("A")) {//一行开始
-                            if (cellData instanceof String) {
-                                String sku = (String) cellData;
-                                rules.setHsCode(sku);
-                                //这儿插入图片，有sku就默认有图片
-
-                                int ml = row.getRowNum();
-                                PictureData pictureData = maplist.get(String.valueOf(ml));
-                                rules.setPicData(pictureData);
-                                Lg.i("图片图片>>>", ml + ">>>" + j);
-
-
+                                switch (cellType) {
+                                    case NUMERIC: //如果结果是数值类型，获取数值
+                                        cellData = cellValue.getNumberValue();
+                                        break;
+                                    case STRING: //如果结果是字符串类型，获取字符串
+                                        cellData = cellValue.getStringValue();
+                                        break;
+                                    case BOOLEAN: //如果结果是布尔类型，获取布尔值
+                                        cellData = cellValue.getBooleanValue();
+                                        break;
+                                    case ERROR: //如果结果是错误类型，获取错误码
+                                        cellData = cellValue.getErrorValue();
+                                        break;
+                                    //                                default: //其他情况，跳过
+                                    //                                    continue;
+                                }
+                                //打印单元格的坐标、公式和求值结果
+                                //                            System.out.println("FORMULA>" + cell.getAddress() + ": " + cell.getCellFormula() + " = " + cellData);
                             } else {
-//                                errStrs.add(name + ">" + address + ":类型错误");
-                            }
-
-                        } else if (address.contains("B")) {
-//                            String size = cellData + "";
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {//申报要素
-                                rules.setInfo(rSize);
-                            } else {
-//                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-
-
-                        } else if (address.contains("C")) {
-                            String catalog = String.valueOf(cellData);
-                            if (catalog != null) {//款号(型号)
-                                //数字会被读成double
-                                catalog = removeDotPart(catalog);
-                                rules.setStyle(catalog.toUpperCase());//统一一下大小写！！！
-                            } else {
-                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-
-                        } else if (address.contains("D")) {
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {//英文品名
-                                rules.setEnName(rSize);
-                            } else {
-                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-                        } else if (address.contains("E")) {
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {//分类
-                                rules.setType(rSize);
-                            } else {
-                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-                        } else if (address.contains("F")) {
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {//工厂
-                                rules.setFactory(rSize);
-                            } else {
-                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-                        } else if (address.contains("G")) {
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {//开票品名
-                                rules.setTicketName(rSize);
-                            } else {
-//                                errStrs.add(name + ">" + address + ":格式错误");
+                                //                            CellType cellType = cell.getCellType();
+                                //                            Object cellData = null;
+                                switch (rcCellType) {
+                                    case NUMERIC: //如果结果是数值类型，获取数值
+                                        cellData = cell.getNumericCellValue();
+                                        break;
+                                    case STRING: //如果结果是字符串类型，获取字符串
+                                        cellData = cell.getStringCellValue();
+                                        break;
+                                    case BOOLEAN: //如果结果是布尔类型，获取布尔值
+                                        cellData = cell.getBooleanCellValue();
+                                        break;
+                                    case ERROR: //如果结果是错误类型，获取错误码
+                                        cellData = cell.getErrorCellValue();
+                                        break;
+                                    //                                default: //其他情况，跳过
+                                    //                                    Lg.i(">>>", rcCellType.name());
+                                    //                                    continue;
+                                }
+                                //                            System.out.println("FORMULA-out>" + cell.getAddress() + ">type" + rcCellType + ">: " + cellData);
                             }
 
-                        } else if (address.contains("H")) {
-                            String rSize = String.valueOf(cellData);
-                            if (rSize != null) {
-                                rules.setUsd(rSize);//最终报关单价/USD
-                            } else {
-//                                errStrs.add(name + ">" + address + ":格式错误");
-                            }
-                        } else if (address.contains("I")) {//最终报关单价/RMB
-                            String erpCode = String.valueOf(cellData);
-                            if (erpCode != null) {
-                                rules.setRmb(erpCode);
-                            } else {
-//                                errStrs.add(name + ">" + address + "最终报关单价/RMB缺失");
-                            }
+                            //                        String address = cell.getAddress() + "";
+                            String address = String.valueOf(cell.getAddress());
+                            if (address.contains("A")) {//一行开始
+                                if (cellData instanceof String) {
+                                    String sku = (String) cellData;
+                                    rules.setHsCode(sku);
+                                    //这儿插入图片，有sku就默认有图片
 
-                        } else if (address.contains("J")) {//报关单位
-                            String ARTICLE = String.valueOf(cellData);
-                            if (ARTICLE != null) {
-                                rules.setUnit(ARTICLE);
-                            } else {
-                                errStrs.add(name + ">" + address + "报关单位缺失");
-                            }
-                        } else if (address.contains("K")) {//Description
-                            String des = String.valueOf(cellData);
-                            if (des != null) {
-                                rules.setDescription(des);
-                            } else {
-//                                errStrs.add(name + ">" + address + "Description缺失");
-                            }
-                        } else if (address.contains("L")) {//单件毛重
-                            String des = String.valueOf(cellData);
-                            if (des != null) {
-                                rules.setKgs(des);
-                            } else {
-//                                errStrs.add(name + ">" + address + "Description缺失");
-                            }
-                        } else if (address.contains("M")) {//品牌
-                            String des = String.valueOf(cellData);
-                            if (des != null) {
-                                rules.setBrand(des);
-                            } else {
-//                                errStrs.add(name + ">" + address + "Description缺失");
-                            }
-                        } else if (address.contains("N")) {//材质
-                            String des = String.valueOf(cellData);
-                            if (des != null) {
-                                rules.setMaterial(des);
-                            } else {
-//                                errStrs.add(name + ">" + address + "Description缺失");
-                            }
-                        } else if (address.contains("O")) {//用途
-                            String des = String.valueOf(cellData);
-                            if (des != null) {
-                                rules.setPurpose(des);
-                            } else {
-//                                errStrs.add(name + ">" + address + "Description缺失");
-                            }
-                        } else if (address.contains("P")) {//图片
-                            //这儿只有8项识别？？
+                                    int ml = row.getRowNum();
+                                    PictureData pictureData = maplist.get(String.valueOf(ml));
+                                    rules.setPicData(pictureData);
+                                    Lg.i("图片图片>>>", ml + ">>>" + j);
 
+
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + ":类型错误");
+                                }
+
+                            } else if (address.contains("B")) {
+                                //                            String size = cellData + "";
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {//申报要素
+                                    rules.setInfo(rSize);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + ":格式错误");
+                                }
+
+
+                            } else if (address.contains("C")) {
+                                String catalog = String.valueOf(cellData);
+                                if (catalog != null) {//款号(型号)
+                                    //数字会被读成double
+                                    catalog = removeDotPart(catalog);
+                                    rules.setStyle(catalog.toUpperCase());//统一一下大小写！！！
+                                } else {
+                                    errStrs.add(name + ">" + address + ":格式错误");
+                                }
+
+                            } else if (address.contains("D")) {
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {//英文品名
+                                    rules.setEnName(rSize);
+                                } else {
+                                    errStrs.add(name + ">" + address + ":格式错误");
+                                }
+                            } else if (address.contains("E")) {
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {//分类
+                                    rules.setType(rSize);
+                                } else {
+                                    errStrs.add(name + ">" + address + ":格式错误");
+                                }
+                            } else if (address.contains("F")) {
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {//工厂
+                                    rules.setFactory(rSize);
+                                } else {
+                                    errStrs.add(name + ">" + address + ":格式错误");
+                                }
+                            } else if (address.contains("G")) {
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {//开票品名
+                                    rules.setTicketName(rSize);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + ":格式错误");
+                                }
+
+                            } else if (address.contains("H")) {
+                                String rSize = String.valueOf(cellData);
+                                if (rSize != null) {
+                                    rules.setUsd(rSize);//最终报关单价/USD
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + ":格式错误");
+                                }
+                            } else if (address.contains("I")) {//最终报关单价/RMB
+                                String erpCode = String.valueOf(cellData);
+                                if (erpCode != null) {
+                                    rules.setRmb(erpCode);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "最终报关单价/RMB缺失");
+                                }
+
+                            } else if (address.contains("J")) {//报关单位
+                                String ARTICLE = String.valueOf(cellData);
+                                if (ARTICLE != null) {
+                                    rules.setUnit(ARTICLE);
+                                } else {
+                                    errStrs.add(name + ">" + address + "报关单位缺失");
+                                }
+                            } else if (address.contains("K")) {//Description
+                                String des = String.valueOf(cellData);
+                                if (des != null) {
+                                    rules.setDescription(des);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "Description缺失");
+                                }
+                            } else if (address.contains("L")) {//单件毛重
+                                String des = String.valueOf(cellData);
+                                if (des != null) {
+                                    rules.setKgs(des);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "Description缺失");
+                                }
+                            } else if (address.contains("M")) {//品牌
+                                String des = String.valueOf(cellData);
+                                if (des != null) {
+                                    rules.setBrand(des);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "Description缺失");
+                                }
+                            } else if (address.contains("N")) {//材质
+                                String des = String.valueOf(cellData);
+                                if (des != null) {
+                                    rules.setMaterial(des);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "Description缺失");
+                                }
+                            } else if (address.contains("O")) {//用途
+                                String des = String.valueOf(cellData);
+                                if (des != null) {
+                                    rules.setPurpose(des);
+                                } else {
+                                    //                                errStrs.add(name + ">" + address + "Description缺失");
+                                }
+                            } else if (address.contains("P")) {//图片
+                                //这儿只有8项识别？？
+
+
+                            }
+                            //                        if (!boxRules.contains(rules)) {
+                            //                            boxRules.add(rules);
+                            //                        }
 
                         }
-//                        if (!boxRules.contains(rules)) {
-//                            boxRules.add(rules);
-//                        }
+                        //放里外结果一样？
+                        if (!boxRules.contains(rules)) {
+                            boxRules.add(rules);
+                        }
+                    }
 
-                    }
-                    //放里外结果一样？
-                    if (!boxRules.contains(rules)) {
-                        boxRules.add(rules);
-                    }
+                    //                System.out.println("Excel->list>" + boxRules.size());
+
+                } else {
+                    System.out.println(sheetName + ">The first sheet is hidden"); //如果是隐藏的，打印提示信息
                 }
 
-//                System.out.println("Excel->list>" + boxRules.size());
 
-            } else {
-                System.out.println(sheetName + ">The first sheet is hidden"); //如果是隐藏的，打印提示信息
             }
-
-
-        }
-        msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
-        if (fileInputStream != null) {
-            fileInputStream.close();
-        }
-        if (workbook != null) {
-            workbook.close();
+            msgBoxes.setErrMsg(errStrs.toString());//放前面放后面一样？地址指向？
         }
 
         return msgBoxes;
@@ -1674,7 +1904,7 @@ public class PoiUtiles {
 
     //小数转换会异常，这个只能整数!
     public static Integer intFormat(String str) {
-        Integer f = 0;
+        int f = 0;
         boolean isNum = StringUtils.isNumber(str);
         if (isNum) {
             f = Integer.parseInt(str);
@@ -1798,7 +2028,7 @@ public class PoiUtiles {
             String sub = matcher.group().substring(1);
             res = sub;
             // 输出结果
-            System.out.println(skuStr + " -> " + sub);
+            System.out.println("getSizeInSKUZ>>"+skuStr + " -> " + sub);
         }
 
         //            res = res.split("-")[0];
@@ -1873,7 +2103,7 @@ public class PoiUtiles {
     //取出sku里的款号
     public static String getSkuModel(String s) {
         // 首先检查字符串是否包含至少两个连字符
-        if (s.indexOf("-") != -1 && s.indexOf("-", s.indexOf("-") + 1) != -1) {
+        if (s.contains("-") && s.indexOf("-", s.indexOf("-") + 1) != -1) {
             // 找到第一个连字符的位置
             String separator = "-";
             int sepPos = s.indexOf(separator); // 第一个分隔符的位置
@@ -1891,6 +2121,27 @@ public class PoiUtiles {
             // 如果字符串不包含至少两个连字符，返回空字符串
             return "";
         }
+    }
+
+    // 把字母转换成数字的方法，excel字母列数
+    public static int excelLettersToNumber(String letters) {
+        // 把字母转换成大写
+        letters = letters.toUpperCase();
+        // 定义一个结果变量，初始为0
+        int result = 0;
+        // 遍历字母的每一位
+        for (int i = 0; i < letters.length(); i++) {
+            // 获取当前位的字母
+            char letter = letters.charAt(i);
+            // 计算当前位的权重，26的幂次
+            int power = (int) Math.pow(26, letters.length() - i - 1);
+            // 计算当前位的值，字母减去'A'再加1
+            int value = letter - 'A' + 1;
+            // 累加到结果中
+            result += power * value;
+        }
+        // 返回结果
+        return result;
     }
 
 
